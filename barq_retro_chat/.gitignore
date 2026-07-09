@@ -1,8 +1,10 @@
 .gradle/
 build/
+bin/
 !gradle/wrapper/gradle-wrapper.jar
 .idea/
 *.iml
 .DS_Store
 kotlin-js-store/
 data/
+.preview-data/

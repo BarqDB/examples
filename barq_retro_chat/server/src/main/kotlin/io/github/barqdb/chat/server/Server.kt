@@ -12,6 +12,8 @@ import io.github.barqdb.chat.protocol.Presences
 import io.github.barqdb.chat.protocol.RoomInfo
 import io.github.barqdb.chat.protocol.RoomList
 import io.github.barqdb.chat.protocol.Say
+import io.github.barqdb.chat.protocol.Search
+import io.github.barqdb.chat.protocol.SearchResults
 import io.github.barqdb.chat.protocol.ServerMsg
 import io.github.barqdb.chat.protocol.StatsUpdate
 import io.github.barqdb.chat.protocol.Typing
@@ -177,6 +179,13 @@ fun Application.module(store: ChatStore, hub: Hub) {
                         Typing -> conn.room?.let { r ->
                             hub.broadcast(r, TypingSignal(conn.user, conn.color), except = conn)
                         }
+                        is Search -> {
+                            val q = msg.q.trim()
+                            if (q.isEmpty()) continue
+                            // Real BarqDB full-text search over the whole archive, timed on the server.
+                            val r = store.search(q, 40)
+                            conn.send(SearchResults(q, r.matches, r.latencyMs, store.messagesStored(), r.hits))
+                        }
                     }
                 }
             } finally {
@@ -233,9 +242,10 @@ private fun botsEnabled(): Boolean {
 }
 
 fun main() {
-    val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
+    val port = (System.getenv("PORT") ?: System.getProperty("port"))?.toIntOrNull() ?: 8080
     // Where BarqDB keeps its files. Override with BARQ_DATA_DIR (e.g. a mounted volume in Docker).
-    val store = ChatStore(File(System.getenv("BARQ_DATA_DIR") ?: "data"))
+    val dataDir = System.getenv("BARQ_DATA_DIR") ?: System.getProperty("barq.data") ?: "data"
+    val store = ChatStore(File(dataDir))
     val hub = Hub()
     val engine = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

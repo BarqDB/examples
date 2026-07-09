@@ -12,6 +12,8 @@ import io.github.barqdb.chat.protocol.Presences
 import io.github.barqdb.chat.protocol.RoomInfo
 import io.github.barqdb.chat.protocol.RoomList
 import io.github.barqdb.chat.protocol.Say
+import io.github.barqdb.chat.protocol.Search
+import io.github.barqdb.chat.protocol.SearchResults
 import io.github.barqdb.chat.protocol.ServerMsg
 import io.github.barqdb.chat.protocol.Stats
 import io.github.barqdb.chat.protocol.StatsUpdate
@@ -51,6 +53,8 @@ private var status = "online"
 private var rooms: List<RoomInfo> = emptyList()
 private var current: RoomInfo? = null
 private var screen = "welcome"
+private var lastStats: Stats? = null
+private var searchTimer = 0
 
 // live DOM handles for the chat screen
 private var msgListEl: HTMLElement? = null
@@ -95,10 +99,16 @@ private fun handle(msg: ServerMsg) {
             if (screen == "rooms") showRooms() // fill the grid once the catalogue arrives
         }
         is RoomList -> {
+            val hadRooms = rooms.isNotEmpty()
             rooms = msg.rooms
-            if (screen == "rooms") showRooms() // live online / msg-s / stored per room
-            else if (screen == "chat") current?.let { cur ->
-                msg.rooms.firstOrNull { it.id == cur.id }?.let { setText("roomMps", fmtCount(it.mps.toLong())) }
+            when {
+                // First time the catalogue arrives while already on the rooms screen: build it.
+                screen == "rooms" && !hadRooms -> showRooms()
+                // Otherwise update the numbers in place — no full re-render (which would wipe stats).
+                screen == "rooms" -> updateRoomCards(msg.rooms)
+                screen == "chat" -> current?.let { cur ->
+                    msg.rooms.firstOrNull { it.id == cur.id }?.let { setText("roomMps", fmtCount(it.mps.toLong())) }
+                }
             }
         }
         is StatsUpdate -> applyStats(msg.stats)
@@ -106,6 +116,7 @@ private fun handle(msg: ServerMsg) {
         is NewMessages -> if (screen == "chat" && msg.room == current?.id) msg.messages.forEach { appendMessage(it) }
         is Presences -> if (screen == "chat" && msg.room == current?.id) renderPresence(msg)
         is TypingSignal -> if (screen == "chat" && msg.user != username) showTyping(msg.user)
+        is SearchResults -> if (screen == "rooms") renderSearch(msg)
     }
 }
 
@@ -120,10 +131,20 @@ private fun setAll(cls: String, text: String) {
 }
 
 private fun applyStats(s: Stats) {
+    lastStats = s
     setAll("js-stored", fmtBig(s.stored))
     setAll("js-users", fmtBig(s.users))
     setAll("js-rooms", groupThousands(s.rooms.toLong()))
     setAll("js-latency", s.latencyMs.toString())
+}
+
+/** Update the per-room numbers on the room cards without rebuilding the grid. */
+private fun updateRoomCards(list: List<RoomInfo>) {
+    list.forEach { r ->
+        setText("ro-${r.id}-online", fmtCount(r.online))
+        setText("ro-${r.id}-mps", fmtCount(r.mps.toLong()))
+        setText("ro-${r.id}-stored", fmtCount(r.stored))
+    }
 }
 
 // ─────────────────────────── screen: welcome ───────────────────────────
@@ -141,8 +162,7 @@ private fun mount(card: HTMLElement) {
 
 private fun showWelcome() {
     screen = "welcome"
-    val card = document.create.div("card") {
-        style = "width:400px; max-width:100%;"
+    val card = document.create.div("card welcome-card") {
         div("goldstrip") {}
         div { style = "padding:26px 30px 10px; text-align:center;"
             div { style = "display:inline-flex; align-items:center; gap:9px; margin-bottom:4px;"
@@ -208,8 +228,7 @@ private fun signIn() {
 
 private fun showRooms() {
     screen = "rooms"
-    val card = document.create.div("card") {
-        style = "width:640px; max-width:100%; display:flex; flex-direction:column; max-height:88vh;"
+    val card = document.create.div("card rooms-card") {
         div("titlebar") {
             span { style = "font-size:18px;"; +"⚡" }
             div { style = "flex:1;"
@@ -218,15 +237,98 @@ private fun showRooms() {
             }
             span("pill") { span("g") {}; +"online" }
         }
-        div { style = "overflow:auto; padding:12px; background:#eef5fd;"
+        // Full-text search over EVERY stored message — searches as you type (1s debounce).
+        div("searchbar") {
+            span("ic") { +"🔍" }
+            input(classes = "search-input") {
+                id = "searchInput"
+                placeholder = "search the whole archive as you type…"
+                onInputFunction = { scheduleSearch() }
+                onKeyDownFunction = { e -> if ((e as KeyboardEvent).key == "Enter") { e.preventDefault(); runSearchNow() } }
+            }
+            a(href = "#") { id = "searchClear"; style = "font-size:11px; display:none; white-space:nowrap;"; onClickFunction = { it.preventDefault(); clearSearch() }; +"✕ back to rooms" }
+            span("corpus") { +"⚡ "; span("js-stored") { +"…" }; +" indexed" }
+        }
+        div { style = "overflow:auto; flex:1; background:#eef5fd;"
             div("roomgrid") {
+                id = "roomGrid"; style = "padding:12px;"
                 rooms.forEach { r -> roomCard(r) }
                 if (rooms.isEmpty()) div { style = "padding:20px; color:#7a8699; font-size:12px;"; +"connecting to barqDB…" }
+            }
+            div {
+                id = "searchPanel"; style = "display:none;"
+                div("search-summary") { id = "searchSummary" }
+                div("hitlist") { id = "searchHits" }
             }
         }
         statusBar(inRoom = false)
     }
     mount(card)
+    lastStats?.let { applyStats(it) }
+}
+
+/** Debounced search: fire 1s after the user stops typing. Emptying the box returns instantly. */
+private fun scheduleSearch() {
+    if (searchTimer != 0) { window.clearTimeout(searchTimer); searchTimer = 0 }
+    val el = document.getElementById("searchInput") as? HTMLInputElement
+    if (el == null || el.value.trim().isEmpty()) { clearSearch(); return }
+    searchTimer = window.setTimeout({ searchTimer = 0; doSearch() }, 1000)
+}
+
+/** Enter searches immediately, cancelling any pending debounce. */
+private fun runSearchNow() {
+    if (searchTimer != 0) { window.clearTimeout(searchTimer); searchTimer = 0 }
+    doSearch()
+}
+
+private fun doSearch() {
+    val el = document.getElementById("searchInput") as? HTMLInputElement ?: return
+    val q = el.value.trim()
+    if (q.isEmpty()) { clearSearch(); return } // emptying the box returns to the room grid
+    send(Search(q))
+    document.getElementById("searchSummary")?.textContent = "searching the archive…"
+    document.getElementById("searchHits")?.let { it.innerHTML = "" }
+    showSearchPanel(true)
+}
+
+private fun clearSearch() {
+    (document.getElementById("searchInput") as? HTMLInputElement)?.value = ""
+    showSearchPanel(false)
+}
+
+private fun showSearchPanel(on: Boolean) {
+    (document.getElementById("roomGrid") as? HTMLElement)?.let { it.style.display = if (on) "none" else "grid" }
+    (document.getElementById("searchPanel") as? HTMLElement)?.let { it.style.display = if (on) "block" else "none" }
+    (document.getElementById("searchClear") as? HTMLElement)?.let { it.style.display = if (on) "inline" else "none" }
+}
+
+private fun renderSearch(r: SearchResults) {
+    showSearchPanel(true)
+    document.getElementById("searchSummary")?.let { el ->
+        el.innerHTML = ""
+        el.append {
+            span {
+                +"Found "; b { +groupThousands(r.matches) }; +" match"; +(if (r.matches == 1L) "" else "es")
+                +" for "; b { +"“${r.q}”" }; +" in "; span("ms") { +"${r.latencyMs}ms" }
+                +" · searched "; b { +groupThousands(r.corpus) }; +" messages"
+            }
+        }
+    }
+    val hitsEl = document.getElementById("searchHits") ?: return
+    hitsEl.innerHTML = ""
+    val iconOf = rooms.associate { it.id to it.icon }
+    if (r.hits.isEmpty()) {
+        hitsEl.append { div("no-hits") { +"no messages matched — try another word" } }
+        return
+    }
+    hitsEl.append {
+        r.hits.forEach { h ->
+            div("hit") {
+                span("rm") { +(iconOf[h.room] ?: "💬") }
+                div("bd") { span("u") { style = "color:${h.color}"; +h.user }; +": "; +h.text }
+            }
+        }
+    }
 }
 
 private fun DIV.roomCard(r: RoomInfo) {
@@ -237,9 +339,9 @@ private fun DIV.roomCard(r: RoomInfo) {
             span("nm") { +r.name }
             span("tp") { +r.topic }
             span { style = "display:flex; gap:6px; flex-wrap:wrap;"
-                span("tag on") { span("d") {}; +"${fmtCount(r.online)} online" }
-                span("tag mps") { +"⚡ ${fmtCount(r.mps.toLong())} msg/s" }
-                span("tag stored") { +"${fmtCount(r.stored)} msgs" }
+                span("tag on") { span("d") {}; span { id = "ro-${r.id}-online"; +fmtCount(r.online) }; +" online" }
+                span("tag mps") { +"⚡ "; span { id = "ro-${r.id}-mps"; +fmtCount(r.mps.toLong()) }; +" msg/s" }
+                span("tag stored") { span { id = "ro-${r.id}-stored"; +fmtCount(r.stored) }; +" msgs" }
             }
         }
     }
@@ -262,8 +364,7 @@ private fun leaveRoom() {
 
 private fun showChat(r: RoomInfo) {
     screen = "chat"
-    val card = document.create.div("card") {
-        style = "width:920px; max-width:100%; height:88vh; display:flex; flex-direction:column;"
+    val card = document.create.div("card chat-card") {
         // title bar
         div("titlebar") {
             span { style = "font-size:24px; line-height:1;"; +r.icon }
@@ -323,6 +424,7 @@ private fun showChat(r: RoomInfo) {
     typingRowEl = card.querySelector(".typing") as HTMLElement
     typingWhoEl = card.querySelector(".typing .who") as HTMLElement
     inputEl = (card.querySelector(".input") as HTMLInputElement).also { it.focus() }
+    lastStats?.let { applyStats(it) }
 }
 
 private fun renderHistory(messages: List<ChatMessage>) {

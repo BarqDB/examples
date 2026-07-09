@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.JavaExec
 import org.gradle.language.jvm.tasks.ProcessResources
 
 plugins {
@@ -28,6 +29,9 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("ch.qos.logback:logback-classic:1.5.6")
+
+    // The seeder streams a .bz2 dataset; Commons Compress decodes bzip2.
+    implementation("org.apache.commons:commons-compress:1.26.2")
 }
 
 kotlin {
@@ -36,6 +40,21 @@ kotlin {
 
 application {
     mainClass.set("io.github.barqdb.chat.server.ServerKt")
+}
+
+// ── One-time bulk seeder ────────────────────────────────────────────────────
+// Downloads a real, CC BY 2.0 public dataset (Tatoeba English sentences) and bulk-imports
+// ~1,000,000 of them into BarqDB as historical messages, so the full-text search + counters
+// run against genuinely large data. Run with the server stopped:
+//   ./gradlew :server:seed                 # ~1,000,000 rows (default)
+//   ./gradlew :server:seed --args="250000" # a smaller sample
+tasks.register<JavaExec>("seed") {
+    group = "application"
+    description = "Bulk-import ~1M real Tatoeba sentences into BarqDB for the huge-data demo."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("io.github.barqdb.chat.server.SeederKt")
+    // Big batched writes like a bit more heap.
+    jvmArgs = listOf("-Xmx1g")
 }
 
 // ── Bundle the compiled Kotlin/JS client into the server jar ────────────────

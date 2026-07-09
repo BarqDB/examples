@@ -1,10 +1,14 @@
 # barqDB Messenger — one service, one port, one persistent volume.
 #
-#   docker compose up --build            # build + run, real data only
-#   BARQ_BOTS=on docker compose up --build   # with simulated load
+#   docker compose up --build            # build + run; FIRST boot auto-seeds ~1M messages
+#   SEED_COUNT=250000 docker compose up  # seed a smaller archive on first boot
+#   SEED_COUNT=0 docker compose up        # start empty (no seeding)
+#   BARQ_BOTS=on docker compose up --build   # with simulated live load
 #   HOST_PORT=9000 docker compose up     # publish on a different host port
 #
-# The BarqDB files live in the named volume `messenger-data`, so message history and the
+# On first boot the entrypoint imports the dataset into the volume, then starts the server;
+# every later restart finds the seed marker and skips straight to the server.
+# The BarqDB files live in the named volume `messenger-data`, so the archive and the
 # "users served" tally survive `docker compose down` (use `-v` to wipe them).
 
 services:
@@ -19,8 +23,9 @@ services:
     environment:
       PORT: "8080"
       BARQ_DATA_DIR: /data
-      BARQ_BOTS: "${BARQ_BOTS:-off}"  # set to "on" to generate real load with simulated users
-      JAVA_OPTS: "-Xmx512m"
+      SEED_COUNT: "${SEED_COUNT:-1000000}"  # rows imported on first boot; 0 = start empty
+      BARQ_BOTS: "${BARQ_BOTS:-off}"        # "on" generates real load with simulated users
+      JAVA_OPTS: "-Xmx1g"
     volumes:
       - messenger-data:/data
     restart: unless-stopped
@@ -29,7 +34,8 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 45s
+      # First boot seeds ~1M rows before the server starts; give it room.
+      start_period: 240s
 
 volumes:
   messenger-data:

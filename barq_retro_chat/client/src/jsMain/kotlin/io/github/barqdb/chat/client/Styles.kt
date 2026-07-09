@@ -38,6 +38,10 @@ a:hover { color: #0b3f80; }
   background: #fff; border: 1px solid #2f6bb0; border-radius: 9px;
   box-shadow: 0 22px 60px rgba(10,40,80,.45); overflow: hidden;
 }
+/* Card sizes live in classes (not inline) so the mobile breakpoint can override them. */
+.welcome-card { width: 400px; max-width: 100%; }
+.rooms-card { width: 640px; max-width: 100%; display: flex; flex-direction: column; max-height: 88vh; }
+.chat-card { width: 920px; max-width: 100%; height: 88vh; display: flex; flex-direction: column; }
 .goldstrip { height: 6px; background: linear-gradient(90deg,#ffd23f,#ff9e1b); }
 
 /* logo */
@@ -124,6 +128,23 @@ a:hover { color: #0b3f80; }
 .tag.mps { color: #a8641f; background: #fdf1e0; border: 1px solid #f0d8b3; }
 .tag.stored { color: #5a7290; background: #eef2f8; border: 1px solid #d5e0ee; }
 
+/* archive search */
+.searchbar { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #e3eefb; border-bottom: 1px solid #cfe0f5; }
+.searchbar .ic { font-size: 15px; flex: none; }
+.search-input { flex: 1; min-width: 0; border: 1px solid #9db8d6; border-radius: 6px; padding: 8px 11px;
+  font-size: 13px; font-family: inherit; background: #fff; box-shadow: inset 0 1px 2px rgba(0,0,0,.06); outline: none; }
+.searchbar .corpus { font-size: 11px; color: #5a7290; white-space: nowrap; flex: none; }
+.search-summary { padding: 10px 14px; font-size: 12.5px; color: #33507a; background: #eef5fd; border-bottom: 1px solid #dbe7f7; }
+.search-summary b { color: #1c4f8f; }
+.search-summary .ms { color: #2c8a45; font-weight: bold; }
+.hitlist { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.hit { display: flex; gap: 9px; align-items: flex-start; padding: 8px 11px; border: 1px solid #e2ebf7;
+  border-radius: 7px; background: linear-gradient(180deg,#fff,#f6faff); }
+.hit .rm { font-size: 16px; line-height: 1.3; flex: none; }
+.hit .bd { font-size: 12.5px; color: #2a2f36; line-height: 1.45; word-break: break-word; min-width: 0; }
+.hit .u { font-weight: bold; }
+.no-hits { padding: 22px; text-align: center; color: #7a8699; font-size: 12.5px; }
+
 /* status bar */
 .statusbar {
   display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 11px; color: #dceafc;
@@ -186,4 +207,40 @@ a:hover { color: #0b3f80; }
 ::-webkit-scrollbar { width: 15px; }
 ::-webkit-scrollbar-track { background: #e4eef8; }
 ::-webkit-scrollbar-thumb { background: linear-gradient(180deg,#bcd4ef,#8fb6e0); border: 1px solid #7ba3d2; border-radius: 7px; }
+
+/* ───────────────────────── mobile ───────────────────────── */
+@media (max-width: 600px) {
+  .stage { padding: 8px; }
+
+  /* rooms: one column, fill the screen */
+  .roomgrid { grid-template-columns: 1fr; }
+  .rooms-card { max-height: calc(100vh - 16px); }
+
+  /* chat: drop the member sidebar (the count still shows in the title bar), fill the screen */
+  .chat-card { height: calc(100vh - 16px); height: calc(100dvh - 16px); }
+  .sidebar { display: none; }
+
+  .titlebar { padding: 9px 12px; gap: 9px; }
+  .titlebar .t-name { font-size: 14px; }
+  .titlebar .pill { padding: 3px 7px; font-size: 10px; }
+
+  /* status bar has many segments — let it wrap and drop the pipe separators */
+  .statusbar { font-size: 10px; gap: 5px 8px; padding: 6px 10px; flex-wrap: wrap; }
+  .statusbar .sep { display: none; }
+
+  .emobar { flex-wrap: wrap; row-gap: 4px; }
+  .bubble { max-width: 86%; }
+  .msglist { padding: 12px; }
+  .composer { padding: 8px; }
+
+  /* search bar: drop the corpus hint, keep input + button on one row */
+  .searchbar { padding: 8px 10px; gap: 6px; }
+  .searchbar .corpus { display: none; }
+}
+
+/* very small phones */
+@media (max-width: 360px) {
+  .brand, .brand small { font-size: 20px; }
+  .emoticon { width: 24px; height: 24px; font-size: 14px; }
+}
 """

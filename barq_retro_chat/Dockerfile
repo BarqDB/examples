@@ -39,17 +39,22 @@ RUN apt-get update \
 USER messenger
 
 COPY --from=build --chown=messenger:messenger /src/server/build/install/server ./
+COPY --chown=messenger:messenger docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 ENV PORT=8080 \
     BARQ_DATA_DIR=/data \
     BARQ_BOTS=off \
-    JAVA_OPTS="-Xmx512m"
+    SEED_COUNT=1000000 \
+    JAVA_OPTS="-Xmx1g"
 
 EXPOSE 8080
 VOLUME ["/data"]
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
+# First boot seeds ~1M rows (download + import), so allow a generous startup window before the
+# health check starts counting failures. Restarts skip seeding and come up in seconds.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=240s --retries=3 \
   CMD curl -fsS "http://localhost:${PORT}/healthz" || exit 1
 
-# The Gradle-generated start script honors JAVA_OPTS.
-CMD ["./bin/server"]
+# The entrypoint seeds the DB once (guarded by a marker in the volume), then execs the server.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

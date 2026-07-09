@@ -86,26 +86,66 @@ BARQ_BOTS=on ./gradlew :server:run
 > First run downloads the Gradle distribution, the Kotlin/JS toolchain, and dependencies, so
 > give it a minute. `PORT=9000 ./gradlew :server:run` changes the port.
 
+## Huge data — search a million real messages
+
+The chat proves *realtime*; this proves *scale*. A one-time seeder bulk-imports a real public
+dataset so BarqDB's full-text search and the counters run against genuinely large data:
+
+```bash
+./gradlew :server:seed                    # imports ~1,000,000 messages (run with the server stopped)
+./gradlew :server:seed --args="250000"    # a smaller sample
+```
+
+It streams the **Tatoeba** English sentence export and writes 1,000,000 sentences into BarqDB as
+historical messages — about **20 seconds**, **~170 MB** on disk (~50k inserts/sec). The dataset is
+downloaded at run time and cached under `build/`; it is **never committed** to the repo.
+
+Start the server and open the room picker — the **🔍 search** box runs a BarqDB `TEXT` full-text
+query (backed by the `@FullText` index) over **every** stored message and shows the real result:
+
+> Found **1,179** matches for “computer” in **1&nbsp;ms** · searched **1,000,000** messages
+
+Single-digit-millisecond full-text search across a million rows, and the "stored" counters are now
+genuinely in the millions — every number measured, nothing faked. The DB opens in ~25 ms because it
+is memory-mapped, not loaded into RAM.
+
+### Data & attribution
+
+Seed data is from **[Tatoeba](https://tatoeba.org)** (community-contributed sentences), released
+under **CC BY 2.0 FR**. The seeder downloads it at run time for local indexing and does not
+redistribute it; see <https://tatoeba.org/eng/downloads>. Swap the corpus with the `TATOEBA_URL`
+env var or a local file: `./gradlew :server:seed --args="1000000 /path/to/file.tsv.bz2"`.
+
 ## Deploy with Docker
 
 ```bash
-docker compose up --build            # build the image and run on :8080
+docker compose up --build            # build, seed ~1M messages on first boot, then run on :8080
 ```
+
+**The first boot auto-seeds the archive.** The container entrypoint imports ~1,000,000 messages
+into the data volume, drops a marker, and starts the server — so a fresh deploy comes up already
+loaded, with full-text search working out of the box. Every later restart finds the marker and
+skips straight to the server (seconds, not minutes).
+
+> First boot does a full Gradle build + a download + a 1M-row import, so give it a few minutes.
+> Watch it with `docker compose logs -f`.
 
 Then hit `http://<your-server>:8080`. One service, one port, one volume:
 
-- The BarqDB files live in a named volume (`messenger-data`), so message history and the
-  "users served" tally **survive restarts**. `docker compose down -v` wipes them.
+- The BarqDB files live in a named volume (`messenger-data`), so the archive and the "users served"
+  tally **survive restarts**. `docker compose down -v` wipes them (the next boot re-seeds).
+- `SEED_COUNT=250000 docker compose up` seeds a smaller archive; `SEED_COUNT=0` starts empty.
 - `HOST_PORT=9000 docker compose up` publishes on a different host port.
-- `BARQ_BOTS=on docker compose up --build` runs the simulated-load generator (real writes).
+- `BARQ_BOTS=on docker compose up --build` also runs the simulated live-load generator.
 
 The image pins **`linux/amd64`** because BarqDB's JVM engine ships a linux-x86_64 native
 library — native on x86_64 servers, emulated on Apple Silicon. Plain `docker build .` works too;
-the container reads `PORT`, `BARQ_DATA_DIR`, and `BARQ_BOTS` from the environment.
+the container reads `PORT`, `BARQ_DATA_DIR`, `SEED_COUNT`, and `BARQ_BOTS` from the environment.
 
 ## Files worth reading
 
-- [`server/.../ChatStore.kt`](server/src/main/kotlin/io/github/barqdb/chat/server/ChatStore.kt) — opens BarqDB and exposes `roomFeed()`, the `asFlow()` subscription.
-- [`server/.../Server.kt`](server/src/main/kotlin/io/github/barqdb/chat/server/Server.kt) — the Ktor WebSocket bridge and the bot engine (bots write real rows).
-- [`client/.../Main.kt`](client/src/jsMain/kotlin/io/github/barqdb/chat/client/Main.kt) — the browser app: connect, render the three screens, react to pushes.
+- [`server/.../ChatStore.kt`](server/src/main/kotlin/io/github/barqdb/chat/server/ChatStore.kt) — opens BarqDB and exposes `roomFeed()` (the `asFlow()` subscription) and `search()` (the timed `TEXT` query).
+- [`server/.../Server.kt`](server/src/main/kotlin/io/github/barqdb/chat/server/Server.kt) — the Ktor WebSocket bridge and the optional bot engine (bots write real rows).
+- [`server/.../Seeder.kt`](server/src/main/kotlin/io/github/barqdb/chat/server/Seeder.kt) — bulk-imports the ~1M-message Tatoeba archive in batched writes.
+- [`client/.../Main.kt`](client/src/jsMain/kotlin/io/github/barqdb/chat/client/Main.kt) — the browser app: connect, render the three screens + archive search, react to pushes.
 - [`shared/.../Protocol.kt`](shared/src/commonMain/kotlin/io/github/barqdb/chat/protocol/Protocol.kt) — every message that crosses the wire.

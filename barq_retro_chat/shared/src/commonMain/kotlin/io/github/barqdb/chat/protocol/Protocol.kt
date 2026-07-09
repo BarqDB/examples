@@ -84,6 +84,11 @@ data class Say(val text: String) : ClientMsg
 @SerialName("typing")
 data object Typing : ClientMsg
 
+/** "Full-text search the whole archive for this word." Answered with [SearchResults]. */
+@Serializable
+@SerialName("search")
+data class Search(val q: String) : ClientMsg
+
 // ─────────────────────────── server → client ───────────────────────────
 
 @Serializable
@@ -131,3 +136,17 @@ data class TypingSignal(val user: String, val color: String) : ServerMsg
 @Serializable
 @SerialName("stats")
 data class StatsUpdate(val stats: Stats) : ServerMsg
+
+/**
+ * Result of a full-text search over the whole archive. [matches] and [latencyMs] are real —
+ * BarqDB counted the hits and we timed the query — over [corpus] total messages.
+ */
+@Serializable
+@SerialName("results")
+data class SearchResults(
+    val q: String,
+    val matches: Long,
+    val latencyMs: Int,
+    val corpus: Long,
+    val hits: List<ChatMessage>,
+) : ServerMsg

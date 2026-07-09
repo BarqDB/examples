@@ -24,6 +24,9 @@ sealed interface RoomFeed {
     data class Added(val messages: List<ChatMessage>) : RoomFeed
 }
 
+/** A full-text search result: the real match count, the real query latency, and a page of hits. */
+data class SearchOutcome(val matches: Long, val latencyMs: Int, val hits: List<ChatMessage>)
+
 /**
  * Owns the one long-lived BarqDB instance and every database operation in the app.
  *
@@ -103,6 +106,20 @@ class ChatStore(dbParent: File) {
     fun usersServed(): Long = served.get()
 
     fun latency(): Int = lastLatency.get()
+
+    /**
+     * Full-text search the whole archive with BarqDB's `TEXT` operator (backed by the `@FullText`
+     * index on [MessageEntity.text]). We time the real query — counting the matches and fetching
+     * the first page — so the latency the UI shows is genuinely measured, over the real corpus.
+     */
+    fun search(q: String, limit: Int = 40): SearchOutcome {
+        val t0 = System.nanoTime()
+        val found = barq.query<MessageEntity>("text TEXT $0", q).find()
+        val matches = found.size.toLong()               // forces the full-text query to evaluate
+        val hits = found.take(limit).map { it.toDto() } // materialize just the first page
+        val ms = ((System.nanoTime() - t0) / 1e6).roundToInt().coerceAtLeast(1)
+        return SearchOutcome(matches, ms, hits)
+    }
 
     fun stats(): Stats = Stats(
         stored = messagesStored(),
