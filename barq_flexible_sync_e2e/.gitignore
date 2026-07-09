@@ -1,0 +1,13 @@
+build/
+cmake-build-*/
+.tmp/
+*.barq
+*.barq.lock
+*.barq.note
+*.barq.control
+*.barq.control/
+# key material / tokens are generated at run time under .tmp, never committed,
+# but ignore them defensively if a run is pointed at this folder.
+*.pem
+*.key
+*.jwt

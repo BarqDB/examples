@@ -1,0 +1,13 @@
+# Keep the build context small and reproducible. Everything the image needs is source +
+# the Gradle wrapper; build outputs and local DB files are rebuilt/created inside the image.
+**/build/
+**/.gradle/
+.gradle/
+**/data/
+data/
+.idea/
+*.iml
+.DS_Store
+kotlin-js-store/
+*.log
+.git/

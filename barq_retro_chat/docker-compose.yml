@@ -1,0 +1,35 @@
+# barqDB Messenger — one service, one port, one persistent volume.
+#
+#   docker compose up --build            # build + run, real data only
+#   BARQ_BOTS=on docker compose up --build   # with simulated load
+#   HOST_PORT=9000 docker compose up     # publish on a different host port
+#
+# The BarqDB files live in the named volume `messenger-data`, so message history and the
+# "users served" tally survive `docker compose down` (use `-v` to wipe them).
+
+services:
+  messenger:
+    build:
+      context: .
+    image: barqdb-messenger:latest
+    container_name: barqdb-messenger
+    platform: linux/amd64            # BarqDB's JVM engine is linux-x86_64
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      BARQ_DATA_DIR: /data
+      BARQ_BOTS: "${BARQ_BOTS:-off}"  # set to "on" to generate real load with simulated users
+      JAVA_OPTS: "-Xmx512m"
+    volumes:
+      - messenger-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 45s
+
+volumes:
+  messenger-data:

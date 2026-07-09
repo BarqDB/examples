@@ -1,0 +1,14 @@
+build/
+cmake-build-*/
+.e2e-run/
+*.barq
+*.barq.lock
+*.barq.note
+*.barq.control
+*.barq.control/
+*.barq.management/
+# key material / tokens are generated at run time under a temp dir, never here,
+# but ignore them defensively if a run is pointed at this folder.
+*.pem
+*.key
+*.jwt

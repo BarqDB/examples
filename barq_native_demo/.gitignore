@@ -1,0 +1,7 @@
+build/
+*.barq
+*.barq.lock
+*.barq.note
+*.barq.control
+*.barq.control/
+*.barq.management/

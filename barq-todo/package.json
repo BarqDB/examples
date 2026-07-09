@@ -1,0 +1,13 @@
+{
+  "name": "barq-todo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A tiny to-do app that tests the published @barqdb/barq package end to end.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node todo.js"
+  },
+  "dependencies": {
+    "@barqdb/barq": "^21.2.0"
+  }
+}
